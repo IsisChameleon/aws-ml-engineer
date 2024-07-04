@@ -1,0 +1,22 @@
+[
+    {
+        "PropertyGroupId": "kinesis.analytics.flink.run.options",
+        "PropertyMap": {
+            "python": "flink-job-to-s3.py",
+            "jarfile": "lib/flink-sql-connector-kinesis-4.3.0-1.19.jar"
+        }
+    },
+    {
+        "PropertyGroupId": "consumer.config.0",
+        "PropertyMap": {
+            "input.stream.name": "TwitterInputStream",
+            "scan.stream.initpos": "LATEST",
+            "aws.region": "ap-southeast-2"
+        }
+    },
+    {
+        "PropertyGroupId": "sink.config.0",
+        "PropertyMap": {
+            "output.bucket.name": "thebucketofjeremy"
+        }
+    }]

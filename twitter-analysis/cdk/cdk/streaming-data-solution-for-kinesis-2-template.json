@@ -1,0 +1,2641 @@
+{
+  "Description": "(SO0124) - Streaming Data Solution for Amazon Kinesis (KPL -> KDS -> KDA). Version v1.9.1",
+  "Metadata": {
+    "AWS::CloudFormation::Interface": {
+      "ParameterGroups": [
+        {
+          "Label": {
+            "default": "Amazon Kinesis Producer Library (KPL) configuration"
+          },
+          "Parameters": [
+            "ProducerVpcId",
+            "ProducerSubnetId",
+            "ProducerAmiId"
+          ]
+        },
+        {
+          "Label": {
+            "default": "Amazon Kinesis Data Streams configuration"
+          },
+          "Parameters": [
+            "ShardCount",
+            "RetentionHours",
+            "EnableEnhancedMonitoring"
+          ]
+        },
+        {
+          "Label": {
+            "default": "Amazon Kinesis Data Analytics configuration"
+          },
+          "Parameters": [
+            "LogLevel",
+            "ApplicationSubnetIds",
+            "ApplicationSecurityGroupIds"
+          ]
+        }
+      ],
+      "ParameterLabels": {
+        "ProducerVpcId": {
+          "default": "VPC where the KPL instance should be launched"
+        },
+        "ProducerSubnetId": {
+          "default": "Subnet where the KPL instance should be launched (needs access to Kinesis - either via IGW or NAT)"
+        },
+        "ProducerAmiId": {
+          "default": "Amazon Machine Image for the KPL instance"
+        },
+        "ShardCount": {
+          "default": "Number of open shards"
+        },
+        "RetentionHours": {
+          "default": "Data retention period (hours)"
+        },
+        "EnableEnhancedMonitoring": {
+          "default": "Enable enhanced (shard-level) metrics"
+        },
+        "LogLevel": {
+          "default": "Verbosity of the CloudWatch Logs for the studio"
+        },
+        "ApplicationSubnetIds": {
+          "default": "(Optional) Comma-separated list of subnet ids for VPC connectivity (if informed, requires security groups to be included as well)"
+        },
+        "ApplicationSecurityGroupIds": {
+          "default": "(Optional) Comma-separated list of security groups ids for VPC connectivity (if informed, requires subnets to be included as well)"
+        }
+      }
+    },
+    "cdk_nag": {
+      "rules_to_suppress": [
+        {
+          "reason": "IAM role requires more permissions",
+          "id": "AwsSolutions-IAM5"
+        },
+        {
+          "reason": "EC2 does not need ASG",
+          "id": "AwsSolutions-EC29"
+        }
+      ]
+    }
+  },
+  "Parameters": {
+    "ShardCount": {
+      "Type": "Number",
+      "Default": 2,
+      "MaxValue": 200,
+      "MinValue": 1
+    },
+    "RetentionHours": {
+      "Type": "Number",
+      "Default": 24,
+      "MaxValue": 8760,
+      "MinValue": 24
+    },
+    "EnableEnhancedMonitoring": {
+      "Type": "String",
+      "Default": "false",
+      "AllowedValues": [
+        "true",
+        "false"
+      ]
+    },
+    "ProducerVpcId": {
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "ProducerSubnetId": {
+      "Type": "AWS::EC2::Subnet::Id"
+    },
+    "ProducerAmiId": {
+      "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+      "Default": "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+    },
+    "LogLevel": {
+      "Type": "String",
+      "Default": "INFO",
+      "AllowedValues": [
+        "DEBUG",
+        "ERROR",
+        "INFO",
+        "WARN"
+      ]
+    },
+    "ApplicationSubnetIds": {
+      "Type": "CommaDelimitedList"
+    },
+    "ApplicationSecurityGroupIds": {
+      "Type": "CommaDelimitedList"
+    }
+  },
+  "Resources": {
+    "KdsDataStream4BCE778D": {
+      "Type": "AWS::Kinesis::Stream",
+      "Properties": {
+        "RetentionPeriodHours": {
+          "Ref": "RetentionHours"
+        },
+        "ShardCount": {
+          "Ref": "ShardCount"
+        },
+        "StreamEncryption": {
+          "EncryptionType": "KMS",
+          "KeyId": "alias/aws/kinesis"
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kds/DataStream/Resource"
+      }
+    },
+    "KdsRole44D602FE": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:",
+                        {
+                          "Ref": "AWS::Partition"
+                        },
+                        ":logs:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":log-group:/aws/lambda/*"
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "CloudWatchLogsPolicy"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "kinesis:EnableEnhancedMonitoring",
+                    "kinesis:DisableEnhancedMonitoring"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*"
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "MonitoringPolicy"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kds/Role/Role/Resource",
+        "guard": {
+          "SuppressedRules": [
+            "IAM_NO_INLINE_POLICY_CHECK"
+          ]
+        },
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W11",
+              "reason": "Kinesis enhanced monitoring actions do not support resource level permissions"
+            }
+          ]
+        }
+      }
+    },
+    "KdsCustomResource9D8AB3E8": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "solutions-${AWS::Region}"
+          },
+          "S3Key": "streaming-data-solution-for-amazon-kinesis/v1.9.1/asset7875fce7d8617e189c770d8b77ac8b5d59df462465623c7a44d61b3b99dffa63.zip"
+        },
+        "Environment": {
+          "Variables": {
+            "AWS_SDK_USER_AGENT": "{ \"user_agent_extra\": \"AwsSolution/SO0124/v1.9.1\" }"
+          }
+        },
+        "Handler": "lambda_function.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "KdsRole44D602FE",
+            "Arn"
+          ]
+        },
+        "Runtime": "python3.12",
+        "Timeout": 30
+      },
+      "DependsOn": [
+        "KdsRole44D602FE"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kds/CustomResource/Resource",
+        "aws:asset:path": "asset.7875fce7d8617e189c770d8b77ac8b5d59df462465623c7a44d61b3b99dffa63",
+        "aws:asset:is-bundled": false,
+        "aws:asset:property": "Code",
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W89",
+              "reason": "This function does not need to be deployed in a VPC"
+            },
+            {
+              "id": "W92",
+              "reason": "This function does not require reserved concurrency"
+            }
+          ]
+        }
+      }
+    },
+    "KdsEnhancedMonitoringF4495F43": {
+      "Type": "Custom::EnhancedMonitoring",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "KdsCustomResource9D8AB3E8",
+            "Arn"
+          ]
+        },
+        "EnableEnhancedMonitoring": {
+          "Ref": "EnableEnhancedMonitoring"
+        },
+        "StreamName": {
+          "Ref": "KdsDataStream4BCE778D"
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kds/EnhancedMonitoring/Default"
+      }
+    },
+    "KplSecurityGroupC1E07FE4": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "KPL security group",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow HTTP outbound traffic",
+            "FromPort": 80,
+            "IpProtocol": "tcp",
+            "ToPort": 80
+          },
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow HTTPS outbound traffic",
+            "FromPort": 443,
+            "IpProtocol": "tcp",
+            "ToPort": 443
+          }
+        ],
+        "VpcId": {
+          "Ref": "ProducerVpcId"
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kpl/SecurityGroup",
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W5",
+              "reason": "Outbound access is allowed to connect to Kinesis"
+            },
+            {
+              "id": "F1000",
+              "reason": "No egress rule defined as default (all traffic allowed outbound) is sufficient for this resource"
+            }
+          ]
+        }
+      }
+    },
+    "KplRole285C5B50": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kpl/Role/Resource"
+      }
+    },
+    "KplRoleDefaultPolicy3BA77381": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "kinesis:ListShards",
+                "kinesis:PutRecord",
+                "kinesis:PutRecords"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "KdsDataStream4BCE778D",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Action": [
+                "kinesis:DescribeStream",
+                "kinesis:DescribeStreamSummary",
+                "kinesis:DescribeStreamConsumer",
+                "kinesis:RegisterStreamConsumer",
+                "kinesis:SubscribeToShard"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "KdsDataStream4BCE778D",
+                  "Arn"
+                ]
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "KplRoleDefaultPolicy3BA77381",
+        "Roles": [
+          {
+            "Ref": "KplRole285C5B50"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kpl/Role/DefaultPolicy/Resource"
+      }
+    },
+    "KplSessionManagerPolicy4751D5D1": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "ssm:DescribeAssociation",
+                "ssm:GetDeployablePatchSnapshotForInstance",
+                "ssm:GetDocument",
+                "ssm:DescribeDocument",
+                "ssm:GetManifest",
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:ListAssociations",
+                "ssm:ListInstanceAssociations",
+                "ssm:PutInventory",
+                "ssm:PutComplianceItems",
+                "ssm:PutConfigurePackageResult",
+                "ssm:UpdateAssociationStatus",
+                "ssm:UpdateInstanceAssociationStatus",
+                "ssm:UpdateInstanceInformation",
+                "ec2messages:AcknowledgeMessage",
+                "ec2messages:DeleteMessage",
+                "ec2messages:FailMessage",
+                "ec2messages:GetEndpoint",
+                "ec2messages:GetMessages",
+                "ec2messages:SendReply",
+                "ssmmessages:CreateControlChannel",
+                "ssmmessages:CreateDataChannel",
+                "ssmmessages:OpenControlChannel",
+                "ssmmessages:OpenDataChannel"
+              ],
+              "Effect": "Allow",
+              "Resource": "*"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "KplSessionManagerPolicy4751D5D1",
+        "Roles": [
+          {
+            "Ref": "KplRole285C5B50"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kpl/SessionManagerPolicy/Resource",
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W12",
+              "reason": "Session Manager actions do not support resource level permissions"
+            }
+          ]
+        }
+      }
+    },
+    "KplMonitoringPolicy17F257E3": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "cloudwatch:PutMetricData",
+              "Effect": "Allow",
+              "Resource": "*"
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "KplMonitoringPolicy17F257E3",
+        "Roles": [
+          {
+            "Ref": "KplRole285C5B50"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kpl/MonitoringPolicy/Resource",
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W12",
+              "reason": "PutMetricData action does not support resource level permissions"
+            }
+          ]
+        }
+      }
+    },
+    "KplCodePolicy7AD86CDB": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObjectVersion",
+                "s3:GetObject",
+                "s3:ListBucket"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition"
+                      },
+                      ":s3:::",
+                      {
+                        "Fn::Join": [
+                          "-",
+                          [
+                            "solutions",
+                            {
+                              "Ref": "AWS::Region"
+                            }
+                          ]
+                        ]
+                      },
+                      "/streaming-data-solution-for-amazon-kinesis/v1.9.1/kpl-demo.zip"
+                    ]
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition"
+                      },
+                      ":s3:::aws-bigdata-blog/*"
+                    ]
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition"
+                      },
+                      ":s3:::aws-bigdata-blog"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "KplCodePolicy7AD86CDB",
+        "Roles": [
+          {
+            "Ref": "KplRole285C5B50"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kpl/CodePolicy/Resource"
+      }
+    },
+    "KplInstanceProfileA195A6D2": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "KplRole285C5B50"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kpl/InstanceProfile"
+      }
+    },
+    "KplProducer6CA72E7B": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/xvda",
+            "Ebs": {
+              "Encrypted": true
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "KplInstanceProfileA195A6D2"
+        },
+        "ImageId": {
+          "Ref": "ProducerAmiId"
+        },
+        "InstanceType": "t3.small",
+        "Monitoring": true,
+        "SecurityGroupIds": [
+          {
+            "Fn::GetAtt": [
+              "KplSecurityGroupC1E07FE4",
+              "GroupId"
+            ]
+          }
+        ],
+        "SubnetId": {
+          "Ref": "ProducerSubnetId"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "KplInstance"
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash\nyum update -y\namazon-linux-extras install java-openjdk11 -y\njava -version\naws s3 cp s3://",
+                {
+                  "Fn::Join": [
+                    "-",
+                    [
+                      "solutions",
+                      {
+                        "Ref": "AWS::Region"
+                      }
+                    ]
+                  ]
+                },
+                "/streaming-data-solution-for-amazon-kinesis/v1.9.1/kpl-demo.zip /tmp/producer.zip\nunzip /tmp/producer.zip -d /tmp && rm -f /tmp/producer.zip"
+              ]
+            ]
+          }
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kpl/Producer"
+      }
+    },
+    "OutputAccessLogsBucket8BE3FC5F": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        }
+      },
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain",
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Output/AccessLogsBucket/Resource",
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W35",
+              "reason": "This bucket is used to store access logs for another bucket"
+            }
+          ]
+        },
+        "guard": {
+          "SuppressedRules": [
+            "S3_BUCKET_NO_PUBLIC_RW_ACL"
+          ]
+        }
+      }
+    },
+    "OutputAccessLogsBucketPolicy66D514CC": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "OutputAccessLogsBucket8BE3FC5F"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              },
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "*"
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "OutputAccessLogsBucket8BE3FC5F",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "OutputAccessLogsBucket8BE3FC5F",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "Action": "s3:PutObject",
+              "Condition": {
+                "ArnLike": {
+                  "aws:SourceArn": {
+                    "Fn::GetAtt": [
+                      "OutputBucketB1E245A7",
+                      "Arn"
+                    ]
+                  }
+                },
+                "StringEquals": {
+                  "aws:SourceAccount": {
+                    "Ref": "AWS::AccountId"
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "logging.s3.amazonaws.com"
+              },
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "OutputAccessLogsBucket8BE3FC5F",
+                        "Arn"
+                      ]
+                    },
+                    "/*"
+                  ]
+                ]
+              }
+            },
+            {
+              "Action": "s3:PutObject",
+              "Condition": {
+                "ArnLike": {
+                  "aws:SourceArn": [
+                    {
+                      "Fn::GetAtt": [
+                        "OutputBucketB1E245A7",
+                        "Arn"
+                      ]
+                    }
+                  ]
+                },
+                "StringEquals": {
+                  "aws:SourceAccount": {
+                    "Ref": "AWS::AccountId"
+                  }
+                }
+              },
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "logging.s3.amazonaws.com"
+              },
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    {
+                      "Fn::GetAtt": [
+                        "OutputAccessLogsBucket8BE3FC5F",
+                        "Arn"
+                      ]
+                    },
+                    "/*"
+                  ]
+                ]
+              },
+              "Sid": "S3ServerAccessLogsPolicy"
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Output/AccessLogsBucket/Policy/Resource"
+      }
+    },
+    "OutputBucketB1E245A7": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 7
+              },
+              "Id": "multipart-upload-rule",
+              "Status": "Enabled"
+            },
+            {
+              "Id": "intelligent-tiering-rule",
+              "Status": "Enabled",
+              "Transitions": [
+                {
+                  "StorageClass": "INTELLIGENT_TIERING",
+                  "TransitionInDays": 1
+                }
+              ]
+            }
+          ]
+        },
+        "LoggingConfiguration": {
+          "DestinationBucketName": {
+            "Ref": "OutputAccessLogsBucket8BE3FC5F"
+          }
+        },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        }
+      },
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain",
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Output/Bucket/Resource",
+        "guard": {
+          "SuppressedRules": [
+            "S3_BUCKET_NO_PUBLIC_RW_ACL"
+          ]
+        }
+      }
+    },
+    "OutputBucketPolicyD67A70DF": {
+      "Type": "AWS::S3::BucketPolicy",
+      "Properties": {
+        "Bucket": {
+          "Ref": "OutputBucketB1E245A7"
+        },
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "s3:*",
+              "Condition": {
+                "Bool": {
+                  "aws:SecureTransport": "false"
+                }
+              },
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "*"
+              },
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "OutputBucketB1E245A7",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "OutputBucketB1E245A7",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          "Version": "2012-10-17"
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Output/Bucket/Policy/Resource"
+      }
+    },
+    "KdaLogGroup3CE88219": {
+      "Type": "AWS::Logs::LogGroup",
+      "Properties": {
+        "RetentionInDays": 365
+      },
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain",
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/LogGroup/Resource",
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W84",
+              "reason": "Log group data is always encrypted in CloudWatch Logs using an AWS Managed KMS Key"
+            }
+          ]
+        }
+      }
+    },
+    "KdaLogStreamDE21D9F7": {
+      "Type": "AWS::Logs::LogStream",
+      "Properties": {
+        "LogGroupName": {
+          "Ref": "KdaLogGroup3CE88219"
+        }
+      },
+      "UpdateReplacePolicy": "Retain",
+      "DeletionPolicy": "Retain",
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/LogStream/Resource"
+      }
+    },
+    "KdaDatabase79F0DCD2": {
+      "Type": "AWS::Glue::Database",
+      "Properties": {
+        "CatalogId": {
+          "Ref": "AWS::AccountId"
+        },
+        "DatabaseInput": {
+          "Description": {
+            "Fn::Join": [
+              "",
+              [
+                {
+                  "Ref": "AWS::StackName"
+                },
+                " - Database for Amazon Kinesis Data Analytics Studio"
+              ]
+            ]
+          }
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/Database"
+      }
+    },
+    "KdaDataCatalogEncryptionSettingsE1A7CAEA": {
+      "Type": "AWS::Glue::DataCatalogEncryptionSettings",
+      "Properties": {
+        "CatalogId": {
+          "Ref": "AWS::AccountId"
+        },
+        "DataCatalogEncryptionSettings": {
+          "EncryptionAtRest": {
+            "CatalogEncryptionMode": "SSE-KMS"
+          }
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/DataCatalogEncryptionSettings"
+      }
+    },
+    "KdaAppRole8C4B7E53": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "kinesisanalytics.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "logs:DescribeLogGroups",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:",
+                        {
+                          "Ref": "AWS::Partition"
+                        },
+                        ":logs:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":log-group:*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Action": [
+                    "logs:DescribeLogStreams",
+                    "logs:PutLogEvents"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::GetAtt": [
+                      "KdaLogGroup3CE88219",
+                      "Arn"
+                    ]
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "LogsPolicy"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "ec2:CreateNetworkInterface",
+                    "ec2:DescribeNetworkInterfaces",
+                    "ec2:DescribeVpcs",
+                    "ec2:DeleteNetworkInterface",
+                    "ec2:DescribeDhcpOptions",
+                    "ec2:DescribeSubnets",
+                    "ec2:DescribeSecurityGroups"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": "*"
+                },
+                {
+                  "Action": "ec2:CreateNetworkInterfacePermission",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:",
+                        {
+                          "Ref": "AWS::Partition"
+                        },
+                        ":ec2:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":network-interface/*"
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "VpcPolicy"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "glue:GetConnection",
+                    "glue:GetTable",
+                    "glue:GetTables",
+                    "glue:GetDatabase",
+                    "glue:CreateTable",
+                    "glue:UpdateTable",
+                    "glue:GetUserDefinedFunction"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": [
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:",
+                          {
+                            "Ref": "AWS::Partition"
+                          },
+                          ":glue:",
+                          {
+                            "Ref": "AWS::Region"
+                          },
+                          ":",
+                          {
+                            "Ref": "AWS::AccountId"
+                          },
+                          ":connection/*"
+                        ]
+                      ]
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:",
+                          {
+                            "Ref": "AWS::Partition"
+                          },
+                          ":glue:",
+                          {
+                            "Ref": "AWS::Region"
+                          },
+                          ":",
+                          {
+                            "Ref": "AWS::AccountId"
+                          },
+                          ":table/",
+                          {
+                            "Ref": "KdaDatabase79F0DCD2"
+                          },
+                          "/*"
+                        ]
+                      ]
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:",
+                          {
+                            "Ref": "AWS::Partition"
+                          },
+                          ":glue:",
+                          {
+                            "Ref": "AWS::Region"
+                          },
+                          ":",
+                          {
+                            "Ref": "AWS::AccountId"
+                          },
+                          ":database/",
+                          {
+                            "Ref": "KdaDatabase79F0DCD2"
+                          }
+                        ]
+                      ]
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:",
+                          {
+                            "Ref": "AWS::Partition"
+                          },
+                          ":glue:",
+                          {
+                            "Ref": "AWS::Region"
+                          },
+                          ":",
+                          {
+                            "Ref": "AWS::AccountId"
+                          },
+                          ":database/hive"
+                        ]
+                      ]
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:",
+                          {
+                            "Ref": "AWS::Partition"
+                          },
+                          ":glue:",
+                          {
+                            "Ref": "AWS::Region"
+                          },
+                          ":",
+                          {
+                            "Ref": "AWS::AccountId"
+                          },
+                          ":catalog"
+                        ]
+                      ]
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          "arn:",
+                          {
+                            "Ref": "AWS::Partition"
+                          },
+                          ":glue:",
+                          {
+                            "Ref": "AWS::Region"
+                          },
+                          ":",
+                          {
+                            "Ref": "AWS::AccountId"
+                          },
+                          ":userDefinedFunction/*"
+                        ]
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "Action": "glue:GetDatabases",
+                  "Effect": "Allow",
+                  "Resource": "*"
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "GluePolicy"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/AppRole/Resource",
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W11",
+              "reason": "EC2 actions do not support resource level permissions / Studio uses default Glue database"
+            }
+          ]
+        },
+        "guard": {
+          "SuppressedRules": [
+            "IAM_NO_INLINE_POLICY_CHECK"
+          ]
+        }
+      }
+    },
+    "KdaAppRoleDefaultPolicyD1F006B0": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "kinesis:DescribeStreamSummary",
+                "kinesis:GetRecords",
+                "kinesis:GetShardIterator",
+                "kinesis:ListShards",
+                "kinesis:SubscribeToShard",
+                "kinesis:DescribeStream",
+                "kinesis:ListStreams",
+                "kinesis:DescribeStreamConsumer"
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "KdsDataStream4BCE778D",
+                  "Arn"
+                ]
+              }
+            },
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+                "s3:PutObject",
+                "s3:PutObjectLegalHold",
+                "s3:PutObjectRetention",
+                "s3:PutObjectTagging",
+                "s3:PutObjectVersionTagging",
+                "s3:Abort*"
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "OutputBucketB1E245A7",
+                    "Arn"
+                  ]
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "OutputBucketB1E245A7",
+                          "Arn"
+                        ]
+                      },
+                      "/*"
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "PolicyName": "KdaAppRoleDefaultPolicyD1F006B0",
+        "Roles": [
+          {
+            "Ref": "KdaAppRole8C4B7E53"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/AppRole/DefaultPolicy/Resource"
+      }
+    },
+    "KdaStudioB3B083CE": {
+      "Type": "AWS::KinesisAnalyticsV2::Application",
+      "Properties": {
+        "ApplicationConfiguration": {
+          "ZeppelinApplicationConfiguration": {
+            "CatalogConfiguration": {
+              "GlueDataCatalogConfiguration": {
+                "DatabaseARN": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition"
+                      },
+                      ":glue:",
+                      {
+                        "Ref": "AWS::Region"
+                      },
+                      ":",
+                      {
+                        "Ref": "AWS::AccountId"
+                      },
+                      ":database/",
+                      {
+                        "Ref": "KdaDatabase79F0DCD2"
+                      }
+                    ]
+                  ]
+                }
+              }
+            },
+            "CustomArtifactsConfiguration": [
+              {
+                "ArtifactType": "DEPENDENCY_JAR",
+                "MavenReference": {
+                  "ArtifactId": "flink-sql-connector-kinesis",
+                  "GroupId": "org.apache.flink",
+                  "Version": "1.15.4"
+                }
+              },
+              {
+                "ArtifactType": "DEPENDENCY_JAR",
+                "MavenReference": {
+                  "ArtifactId": "flink-connector-kafka",
+                  "GroupId": "org.apache.flink",
+                  "Version": "1.15.4"
+                }
+              },
+              {
+                "ArtifactType": "DEPENDENCY_JAR",
+                "MavenReference": {
+                  "ArtifactId": "aws-msk-iam-auth",
+                  "GroupId": "software.amazon.msk",
+                  "Version": "1.1.6"
+                }
+              }
+            ],
+            "MonitoringConfiguration": {
+              "LogLevel": {
+                "Ref": "LogLevel"
+              }
+            }
+          }
+        },
+        "ApplicationMode": "INTERACTIVE",
+        "RuntimeEnvironment": "ZEPPELIN-FLINK-3_0",
+        "ServiceExecutionRole": {
+          "Fn::GetAtt": [
+            "KdaAppRole8C4B7E53",
+            "Arn"
+          ]
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/Studio"
+      }
+    },
+    "KdaCustomResourceRole660D7304": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:",
+                        {
+                          "Ref": "AWS::Partition"
+                        },
+                        ":logs:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":log-group:/aws/lambda/*"
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "CloudWatchLogsPolicy"
+          },
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "kinesisanalytics:AddApplicationVpcConfiguration",
+                    "kinesisanalytics:DeleteApplicationVpcConfiguration",
+                    "kinesisanalytics:DescribeApplication"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:",
+                        {
+                          "Ref": "AWS::Partition"
+                        },
+                        ":kinesisanalytics:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":application/",
+                        {
+                          "Ref": "KdaStudioB3B083CE"
+                        }
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "VpcConfigPolicy"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/CustomResourceRole/Role/Resource",
+        "guard": {
+          "SuppressedRules": [
+            "IAM_NO_INLINE_POLICY_CHECK"
+          ]
+        }
+      }
+    },
+    "KdaCustomResourceBDCE3659": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "solutions-${AWS::Region}"
+          },
+          "S3Key": "streaming-data-solution-for-amazon-kinesis/v1.9.1/asset9f1e51715204950e0d03c7d4b95c70b3ae587b6dbd9aba4e3bf81cfe2125285b.zip"
+        },
+        "Environment": {
+          "Variables": {
+            "AWS_SDK_USER_AGENT": "{ \"user_agent_extra\": \"AwsSolution/SO0124/v1.9.1\" }"
+          }
+        },
+        "Handler": "lambda_function.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "KdaCustomResourceRole660D7304",
+            "Arn"
+          ]
+        },
+        "Runtime": "python3.12",
+        "Timeout": 30
+      },
+      "DependsOn": [
+        "KdaCustomResourceRole660D7304"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/CustomResource/Resource",
+        "aws:asset:path": "asset.9f1e51715204950e0d03c7d4b95c70b3ae587b6dbd9aba4e3bf81cfe2125285b",
+        "aws:asset:is-bundled": false,
+        "aws:asset:property": "Code",
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W89",
+              "reason": "This function does not need to be deployed in a VPC"
+            },
+            {
+              "id": "W92",
+              "reason": "This function does not require reserved concurrency"
+            }
+          ]
+        }
+      }
+    },
+    "KdaVpcConfiguration8480F4E1": {
+      "Type": "Custom::VpcConfiguration",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "KdaCustomResourceBDCE3659",
+            "Arn"
+          ]
+        },
+        "ApplicationName": {
+          "Ref": "KdaStudioB3B083CE"
+        },
+        "SubnetIds": {
+          "Ref": "ApplicationSubnetIds"
+        },
+        "SecurityGroupIds": {
+          "Ref": "ApplicationSecurityGroupIds"
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/VpcConfiguration/Default"
+      }
+    },
+    "KdaLoggingEAF1BAAE": {
+      "Type": "AWS::KinesisAnalyticsV2::ApplicationCloudWatchLoggingOption",
+      "Properties": {
+        "ApplicationName": {
+          "Ref": "KdaStudioB3B083CE"
+        },
+        "CloudWatchLoggingOption": {
+          "LogStreamARN": {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition"
+                },
+                ":logs:",
+                {
+                  "Ref": "AWS::Region"
+                },
+                ":",
+                {
+                  "Ref": "AWS::AccountId"
+                },
+                ":log-group:",
+                {
+                  "Ref": "KdaLogGroup3CE88219"
+                },
+                ":log-stream:",
+                {
+                  "Ref": "KdaLogStreamDE21D9F7"
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Kda/Logging"
+      }
+    },
+    "SolutionHelperRoleC017C62A": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            }
+          ],
+          "Version": "2012-10-17"
+        },
+        "Policies": [
+          {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        "arn:",
+                        {
+                          "Ref": "AWS::Partition"
+                        },
+                        ":logs:",
+                        {
+                          "Ref": "AWS::Region"
+                        },
+                        ":",
+                        {
+                          "Ref": "AWS::AccountId"
+                        },
+                        ":log-group:/aws/lambda/*"
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "CloudWatchLogsPolicy"
+          }
+        ]
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/SolutionHelper/Role/Role/Resource",
+        "guard": {
+          "SuppressedRules": [
+            "IAM_NO_INLINE_POLICY_CHECK"
+          ]
+        }
+      }
+    },
+    "SolutionHelper4825923B": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "Code": {
+          "S3Bucket": {
+            "Fn::Sub": "solutions-${AWS::Region}"
+          },
+          "S3Key": "streaming-data-solution-for-amazon-kinesis/v1.9.1/asset45c0c0be3ef1623670db5493f54356597421ba7b67b2f1b956213afa24c95cb1.zip"
+        },
+        "Description": "This function generates UUID for each deployment and sends anonymous data to the AWS Solutions team",
+        "Environment": {
+          "Variables": {
+            "AWS_SDK_USER_AGENT": "{ \"user_agent_extra\": \"AwsSolution/SO0124/v1.9.1\" }"
+          }
+        },
+        "Handler": "lambda_function.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "SolutionHelperRoleC017C62A",
+            "Arn"
+          ]
+        },
+        "Runtime": "python3.12",
+        "Timeout": 30
+      },
+      "DependsOn": [
+        "SolutionHelperRoleC017C62A"
+      ],
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/SolutionHelper/SolutionHelper/Resource",
+        "aws:asset:path": "asset.45c0c0be3ef1623670db5493f54356597421ba7b67b2f1b956213afa24c95cb1",
+        "aws:asset:is-bundled": false,
+        "aws:asset:property": "Code",
+        "cfn_nag": {
+          "rules_to_suppress": [
+            {
+              "id": "W89",
+              "reason": "This function does not need to be deployed in a VPC"
+            },
+            {
+              "id": "W92",
+              "reason": "This function does not require reserved concurrency"
+            }
+          ]
+        }
+      },
+      "Condition": "SolutionHelperAnonymousDatatoAWSD898118F"
+    },
+    "SolutionHelperCreateUniqueIDAF03406A": {
+      "Type": "Custom::CreateUUID",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "SolutionHelper4825923B",
+            "Arn"
+          ]
+        },
+        "Resource": "UUID"
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/SolutionHelper/CreateUniqueID/Default"
+      },
+      "Condition": "SolutionHelperAnonymousDatatoAWSD898118F"
+    },
+    "SolutionHelperSendAnonymousData9B19E31D": {
+      "Type": "Custom::AnonymousData",
+      "Properties": {
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "SolutionHelper4825923B",
+            "Arn"
+          ]
+        },
+        "Resource": "AnonymousMetric",
+        "UUID": {
+          "Fn::GetAtt": [
+            "SolutionHelperCreateUniqueIDAF03406A",
+            "UUID"
+          ]
+        },
+        "Region": {
+          "Ref": "AWS::Region"
+        },
+        "SolutionId": "SO0124",
+        "Version": "v1.9.1",
+        "Pattern": "KplKdsKda",
+        "ShardCount": {
+          "Ref": "ShardCount"
+        },
+        "RetentionHours": {
+          "Ref": "RetentionHours"
+        },
+        "EnhancedMonitoring": {
+          "Ref": "EnableEnhancedMonitoring"
+        }
+      },
+      "UpdateReplacePolicy": "Delete",
+      "DeletionPolicy": "Delete",
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/SolutionHelper/SendAnonymousData/Default"
+      },
+      "Condition": "SolutionHelperAnonymousDatatoAWSD898118F"
+    },
+    "MonitoringDashboard0C3675C6": {
+      "Type": "AWS::CloudWatch::Dashboard",
+      "Properties": {
+        "DashboardBody": {
+          "Fn::Join": [
+            "",
+            [
+              "{\"widgets\":[{\"type\":\"text\",\"width\":24,\"height\":1,\"x\":0,\"y\":0,\"properties\":{\"markdown\":\"\\n# Application Health\\n\"}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":1,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Downtime\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"annotations\":{\"alarms\":[\"",
+              {
+                "Fn::GetAtt": [
+                  "MonitoringDowntimeAlarmB4F4F519",
+                  "Arn"
+                ]
+              },
+              "\"]},\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":6,\"y\":1,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Uptime\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[\"AWS/KinesisAnalytics\",\"uptime\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"period\":60,\"stat\":\"Minimum\"}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":12,\"y\":1,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Flink Job Restarts\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[\"AWS/KinesisAnalytics\",\"fullRestarts\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"period\":60,\"stat\":\"Maximum\"}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":18,\"y\":1,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Number of Failed Checkpoints\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"annotations\":{\"alarms\":[\"",
+              {
+                "Fn::GetAtt": [
+                  "MonitoringCheckpointAlarmF5E3E533",
+                  "Arn"
+                ]
+              },
+              "\"]},\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":7,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Last Checkpoint Duration\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[\"AWS/KinesisAnalytics\",\"lastCheckpointDuration\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"period\":60,\"stat\":\"Maximum\"}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":6,\"y\":7,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Last Checkpoint Size\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[\"AWS/KinesisAnalytics\",\"lastCheckpointSize\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"period\":60}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"text\",\"width\":24,\"height\":1,\"x\":0,\"y\":13,\"properties\":{\"markdown\":\"\\n# Resource Utilization\\n\"}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":14,\"properties\":{\"view\":\"timeSeries\",\"title\":\"CPU Utilization\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"annotations\":{\"alarms\":[\"",
+              {
+                "Fn::GetAtt": [
+                  "MonitoringCpuUtilizationAlarmE52043EA",
+                  "Arn"
+                ]
+              },
+              "\"]},\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":6,\"y\":14,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Heap Memory Utilization\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"annotations\":{\"alarms\":[\"",
+              {
+                "Fn::GetAtt": [
+                  "MonitoringHeapMemoryAlarmC222839A",
+                  "Arn"
+                ]
+              },
+              "\"]},\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":12,\"y\":14,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Thread Count\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[\"AWS/KinesisAnalytics\",\"threadsCount\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"period\":60,\"stat\":\"Maximum\"}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":18,\"y\":14,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Old Generation GC Percent (Over 1 Min)\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"annotations\":{\"alarms\":[\"",
+              {
+                "Fn::GetAtt": [
+                  "MonitoringGCPercentAlarm36EDD087",
+                  "Arn"
+                ]
+              },
+              "\"]},\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":20,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Old Generation GC Count Rate\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[{\"label\":\"Old Generation GC Count Rate\",\"expression\":\"RATE(METRICS()) * 60\",\"period\":60}],[\"AWS/KinesisAnalytics\",\"oldGenerationGCCount\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"label\":\"\",\"period\":60,\"stat\":\"Maximum\",\"visible\":false,\"id\":\"m1\"}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"text\",\"width\":24,\"height\":1,\"x\":0,\"y\":26,\"properties\":{\"markdown\":\"\\n# Flink Application Progress\\n\"}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":27,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Incoming Records (Per Second)\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[\"AWS/KinesisAnalytics\",\"numRecordsInPerSecond\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"period\":60}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":6,\"y\":27,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Outgoing Records (Per Second)\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"annotations\":{\"alarms\":[\"",
+              {
+                "Fn::GetAtt": [
+                  "MonitoringRecordsOutAlarm542CDE63",
+                  "Arn"
+                ]
+              },
+              "\"]},\"yAxis\":{}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":12,\"y\":27,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Input Watermark\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[\"AWS/KinesisAnalytics\",\"currentInputWatermark\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"period\":60,\"stat\":\"Minimum\"}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":18,\"y\":27,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Output Watermark\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[\"AWS/KinesisAnalytics\",\"currentOutputWatermark\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"period\":60,\"stat\":\"Minimum\"}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":33,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Event Time Latency\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[{\"label\":\"Event Time Latency\",\"expression\":\"m1 - m2\",\"period\":60}],[\"AWS/KinesisAnalytics\",\"currentOutputWatermark\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"label\":\"\",\"period\":60,\"stat\":\"Minimum\",\"visible\":false,\"id\":\"m1\"}],[\"AWS/KinesisAnalytics\",\"currentInputWatermark\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"label\":\"\",\"period\":60,\"stat\":\"Minimum\",\"visible\":false,\"id\":\"m2\"}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":6,\"y\":33,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Late Records Dropped\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"metrics\":[[\"AWS/KinesisAnalytics\",\"numLateRecordsDropped\",\"Application\",\"",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "\",{\"period\":60,\"stat\":\"Maximum\"}]],\"yAxis\":{\"left\":{\"showUnits\":false},\"right\":{\"showUnits\":false}}}},{\"type\":\"text\",\"width\":24,\"height\":1,\"x\":0,\"y\":39,\"properties\":{\"markdown\":\"\\n# Kinesis Source Metrics\\n\"}},{\"type\":\"metric\",\"width\":6,\"height\":6,\"x\":0,\"y\":40,\"properties\":{\"view\":\"timeSeries\",\"title\":\"Kinesis MillisBehindLatest\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"annotations\":{\"alarms\":[\"",
+              {
+                "Fn::GetAtt": [
+                  "MonitoringMillisBehindAlarmE2067618",
+                  "Arn"
+                ]
+              },
+              "\"]},\"yAxis\":{}}},{\"type\":\"text\",\"width\":24,\"height\":1,\"x\":0,\"y\":46,\"properties\":{\"markdown\":\"\\n# Logs Insights\\n\"}},{\"type\":\"log\",\"width\":24,\"height\":6,\"x\":0,\"y\":47,\"properties\":{\"view\":\"table\",\"title\":\"Distribution of Tasks\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"query\":\"SOURCE '",
+              {
+                "Ref": "KdaLogGroup3CE88219"
+              },
+              "' | fields @timestamp, message\\n| filter message like /Deploying/\\n| parse message \\\" to flink-taskmanager-*\\\" as @tmid\\n| stats count(*) by @tmid\\n| sort @timestamp desc\\n| limit 20\"}},{\"type\":\"log\",\"width\":24,\"height\":6,\"x\":0,\"y\":53,\"properties\":{\"view\":\"table\",\"title\":\"Change in Parallelism\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"query\":\"SOURCE '",
+              {
+                "Ref": "KdaLogGroup3CE88219"
+              },
+              "' | fields @timestamp, @parallelism\\n| filter message like /property: parallelism.default, /\\n| parse message \\\"default, *\\\" as @parallelism\\n| sort @timestamp asc\\n| limit 20\"}},{\"type\":\"log\",\"width\":24,\"height\":6,\"x\":0,\"y\":59,\"properties\":{\"view\":\"table\",\"title\":\"Access Denied\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"query\":\"SOURCE '",
+              {
+                "Ref": "KdaLogGroup3CE88219"
+              },
+              "' | fields @timestamp, @message, @messageType\\n| filter applicationARN like /arn:",
+              {
+                "Ref": "AWS::Partition"
+              },
+              ":kinesisanalytics:",
+              {
+                "Ref": "AWS::Region"
+              },
+              ":",
+              {
+                "Ref": "AWS::AccountId"
+              },
+              ":application/",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "/\\n| filter @message like /AccessDenied/\\n| sort @timestamp desc\\n| limit 20\"}},{\"type\":\"log\",\"width\":24,\"height\":6,\"x\":0,\"y\":65,\"properties\":{\"view\":\"table\",\"title\":\"Source or Sink Not Found\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"query\":\"SOURCE '",
+              {
+                "Ref": "KdaLogGroup3CE88219"
+              },
+              "' | fields @timestamp, @message\\n| filter applicationARN like /arn:",
+              {
+                "Ref": "AWS::Partition"
+              },
+              ":kinesisanalytics:",
+              {
+                "Ref": "AWS::Region"
+              },
+              ":",
+              {
+                "Ref": "AWS::AccountId"
+              },
+              ":application/",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "/\\n| filter @message like /ResourceNotFoundException/\\n| sort @timestamp desc\\n| limit 20\"}},{\"type\":\"log\",\"width\":24,\"height\":6,\"x\":0,\"y\":71,\"properties\":{\"view\":\"table\",\"title\":\"Application Task-Related Failures\",\"region\":\"",
+              {
+                "Ref": "AWS::Region"
+              },
+              "\",\"query\":\"SOURCE '",
+              {
+                "Ref": "KdaLogGroup3CE88219"
+              },
+              "' | fields @timestamp, @message\\n| filter applicationARN like /arn:",
+              {
+                "Ref": "AWS::Partition"
+              },
+              ":kinesisanalytics:",
+              {
+                "Ref": "AWS::Region"
+              },
+              ":",
+              {
+                "Ref": "AWS::AccountId"
+              },
+              ":application/",
+              {
+                "Ref": "KdaStudioB3B083CE"
+              },
+              "/\\n| filter @message like /switched from RUNNING to RESTARTING/\\n| sort @timestamp desc\\n| limit 20\"}}]}"
+            ]
+          ]
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Monitoring/Dashboard/Resource"
+      }
+    },
+    "MonitoringDowntimeAlarmB4F4F519": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "Application",
+            "Value": {
+              "Ref": "KdaStudioB3B083CE"
+            }
+          }
+        ],
+        "EvaluationPeriods": 1,
+        "MetricName": "downtime",
+        "Namespace": "AWS/KinesisAnalytics",
+        "Period": 60,
+        "Statistic": "Average",
+        "Threshold": 0,
+        "TreatMissingData": "breaching"
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Monitoring/DowntimeAlarm/Resource"
+      }
+    },
+    "MonitoringCheckpointAlarmF5E3E533": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "Application",
+            "Value": {
+              "Ref": "KdaStudioB3B083CE"
+            }
+          }
+        ],
+        "EvaluationPeriods": 1,
+        "MetricName": "numberOfFailedCheckpoints",
+        "Namespace": "AWS/KinesisAnalytics",
+        "Period": 60,
+        "Statistic": "Average",
+        "Threshold": 0,
+        "TreatMissingData": "breaching"
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Monitoring/CheckpointAlarm/Resource"
+      }
+    },
+    "MonitoringCpuUtilizationAlarmE52043EA": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "Application",
+            "Value": {
+              "Ref": "KdaStudioB3B083CE"
+            }
+          }
+        ],
+        "EvaluationPeriods": 1,
+        "MetricName": "cpuUtilization",
+        "Namespace": "AWS/KinesisAnalytics",
+        "Period": 60,
+        "Statistic": "Maximum",
+        "Threshold": 80,
+        "TreatMissingData": "breaching"
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Monitoring/CpuUtilizationAlarm/Resource"
+      }
+    },
+    "MonitoringHeapMemoryAlarmC222839A": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "Application",
+            "Value": {
+              "Ref": "KdaStudioB3B083CE"
+            }
+          }
+        ],
+        "EvaluationPeriods": 1,
+        "MetricName": "heapMemoryUtilization",
+        "Namespace": "AWS/KinesisAnalytics",
+        "Period": 60,
+        "Statistic": "Maximum",
+        "Threshold": 90,
+        "TreatMissingData": "breaching"
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Monitoring/HeapMemoryAlarm/Resource"
+      }
+    },
+    "MonitoringGCPercentAlarm36EDD087": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ComparisonOperator": "GreaterThanThreshold",
+        "EvaluationPeriods": 1,
+        "Metrics": [
+          {
+            "Expression": "(m1 * 100)/60000",
+            "Id": "expr_1",
+            "Label": "Old Generation GC Time Percent"
+          },
+          {
+            "Id": "m1",
+            "MetricStat": {
+              "Metric": {
+                "Dimensions": [
+                  {
+                    "Name": "Application",
+                    "Value": {
+                      "Ref": "KdaStudioB3B083CE"
+                    }
+                  }
+                ],
+                "MetricName": "oldGenerationGCTime",
+                "Namespace": "AWS/KinesisAnalytics"
+              },
+              "Period": 60,
+              "Stat": "Maximum"
+            },
+            "ReturnData": false
+          }
+        ],
+        "Threshold": 60,
+        "TreatMissingData": "breaching"
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Monitoring/GCPercentAlarm/Resource"
+      }
+    },
+    "MonitoringRecordsOutAlarm542CDE63": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ComparisonOperator": "LessThanOrEqualToThreshold",
+        "Dimensions": [
+          {
+            "Name": "Application",
+            "Value": {
+              "Ref": "KdaStudioB3B083CE"
+            }
+          }
+        ],
+        "EvaluationPeriods": 1,
+        "MetricName": "numRecordsOutPerSecond",
+        "Namespace": "AWS/KinesisAnalytics",
+        "Period": 60,
+        "Statistic": "Average",
+        "Threshold": 0,
+        "TreatMissingData": "breaching"
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Monitoring/RecordsOutAlarm/Resource"
+      }
+    },
+    "MonitoringMillisBehindAlarmE2067618": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "Application",
+            "Value": {
+              "Ref": "KdaStudioB3B083CE"
+            }
+          },
+          {
+            "Name": "Flow",
+            "Value": "Input"
+          },
+          {
+            "Name": "Id",
+            "Value": {
+              "Fn::Join": [
+                "_",
+                {
+                  "Fn::Split": [
+                    "-",
+                    {
+                      "Ref": "KdsDataStream4BCE778D"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "EvaluationPeriods": 1,
+        "MetricName": "millisBehindLatest",
+        "Namespace": "AWS/KinesisAnalytics",
+        "Period": 60,
+        "Statistic": "Maximum",
+        "Threshold": 60000,
+        "TreatMissingData": "breaching"
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/Monitoring/MillisBehindAlarm/Resource"
+      }
+    },
+    "AppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730AppRegistrySetupAppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730BEC4D19D": {
+      "Type": "AWS::ServiceCatalogAppRegistry::Application",
+      "Properties": {
+        "Description": "Service Catalog application to track and manage all your resources for the solution streaming-data-solution-for-amazon-kinesis",
+        "Name": {
+          "Fn::Join": [
+            "-",
+            [
+              "App",
+              {
+                "Ref": "AWS::StackName"
+              },
+              "sds-amazon-kinesis"
+            ]
+          ]
+        },
+        "Tags": {
+          "Solutions:ApplicationType": "AWS-Solutions",
+          "Solutions:SolutionID": "SO0124",
+          "Solutions:SolutionName": "streaming-data-solution-for-amazon-kinesis",
+          "Solutions:SolutionVersion": "v1.9.1"
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/AppRegistry-c2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730/AppRegistrySetup-AppRegistry-c2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730/Resource"
+      }
+    },
+    "AppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730AppRegistrySetupAppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730AttributeGroupAssociation0bcd986afda77FECA7C3": {
+      "Type": "AWS::ServiceCatalogAppRegistry::AttributeGroupAssociation",
+      "Properties": {
+        "Application": {
+          "Fn::GetAtt": [
+            "AppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730AppRegistrySetupAppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730BEC4D19D",
+            "Id"
+          ]
+        },
+        "AttributeGroup": {
+          "Fn::GetAtt": [
+            "AppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730ApplicationAttributes5E73E9EA",
+            "Id"
+          ]
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/AppRegistry-c2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730/AppRegistrySetup-AppRegistry-c2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730/AttributeGroupAssociation0bcd986afda7"
+      }
+    },
+    "AppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730ApplicationAttributes5E73E9EA": {
+      "Type": "AWS::ServiceCatalogAppRegistry::AttributeGroup",
+      "Properties": {
+        "Attributes": {
+          "applicationType": "AWS-Solutions",
+          "version": "v1.9.1",
+          "solutionID": "SO0124",
+          "solutionName": "streaming-data-solution-for-amazon-kinesis"
+        },
+        "Description": "Attributes for Solutions Metadata",
+        "Name": {
+          "Fn::Join": [
+            "",
+            [
+              "AttrGrp-",
+              {
+                "Ref": "AWS::StackName"
+              }
+            ]
+          ]
+        }
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/AppRegistry-c2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730/ApplicationAttributes/Resource"
+      }
+    },
+    "AppRegistryAssociation": {
+      "Type": "AWS::ServiceCatalogAppRegistry::ResourceAssociation",
+      "Properties": {
+        "Application": {
+          "Fn::GetAtt": [
+            "AppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730AppRegistrySetupAppRegistryc2fb75d2bb56c19911c329fc06a1dec40495850efbad4b2098d4b2d838ccb730BEC4D19D",
+            "Id"
+          ]
+        },
+        "Resource": {
+          "Ref": "AWS::StackId"
+        },
+        "ResourceType": "CFN_STACK"
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/AppRegistryAssociation"
+      }
+    },
+    "CDKMetadata": {
+      "Type": "AWS::CDK::Metadata",
+      "Properties": {
+        "Analytics": "v2:deflate64:H4sIAAAAAAAA/3VS0W7bMAz8lrwrauz+QFN3GwZkaNAA3WNBy4yjRpYEkWoQGPr3QXKSugP6xCN5pO4k1XKs6kquFnCipeqOS6NbOe4Y1FE0e7uFAAMyBgEnehuP2iJpyoSAMGTGhJLQMMjxxRnMxRK3zmh1Lltu6LclBqtwG9xeG0zCwNB2IMef0SrWzmbSFSdB929AhExynYOgezk+RnVEfgRCMcE8ckFT+DxunieBqpZjlowqBs3nX8FFP1eVhHE9yXHj+lvvhjeu/3R9S5LoTcSy9gkY2izrghtgMK7/YVU4++xnh8za9pTE5R7BgjmzVlTm194brSAzX2vxtdAYF7u/wOqwcX2vbf/sJ14SKrdOuSXHJ6BD6yB0k4ZrsjYQiuwCkiAMH1qhmgSC9wF7TRzO/+soM8xBt5GxXMOayCn9TbM8PZKLQeGMmJK4VkV5xx1D9iCaSOyGW282nfEf8L6w9rZxttPXM58j+8hJVKtarpZg/AHkavFw+cB3OX5r8EIf5x6/ekhJWNehfKe7j3olq0pWi3fSehmiZT2gfJniP88RFbM5AwAA"
+      },
+      "Metadata": {
+        "aws:cdk:path": "streaming-data-solution-for-kinesis-using-kpl-and-kinesis-data-analytics/CDKMetadata/Default"
+      },
+      "Condition": "CDKMetadataAvailable"
+    }
+  },
+  "Mappings": {
+    "SolutionHelperAnonymousData14B64A81": {
+      "SendAnonymousData": {
+        "Data": "Yes"
+      }
+    }
+  },
+  "Conditions": {
+    "SolutionHelperAnonymousDatatoAWSD898118F": {
+      "Fn::Equals": [
+        {
+          "Fn::FindInMap": [
+            "SolutionHelperAnonymousData14B64A81",
+            "SendAnonymousData",
+            "Data"
+          ]
+        },
+        "Yes"
+      ]
+    },
+    "CDKMetadataAvailable": {
+      "Fn::Or": [
+        {
+          "Fn::Or": [
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "af-south-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "ap-east-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "ap-northeast-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "ap-northeast-2"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "ap-south-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "ap-southeast-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "ap-southeast-2"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "ca-central-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "cn-north-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "cn-northwest-1"
+              ]
+            }
+          ]
+        },
+        {
+          "Fn::Or": [
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "eu-central-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "eu-north-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "eu-south-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "eu-west-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "eu-west-2"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "eu-west-3"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "il-central-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "me-central-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "me-south-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "sa-east-1"
+              ]
+            }
+          ]
+        },
+        {
+          "Fn::Or": [
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "us-east-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "us-east-2"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "us-west-1"
+              ]
+            },
+            {
+              "Fn::Equals": [
+                {
+                  "Ref": "AWS::Region"
+                },
+                "us-west-2"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "Outputs": {
+    "ProducerInstance": {
+      "Description": "ID of the KPL Amazon EC2 instance",
+      "Value": {
+        "Ref": "KplProducer6CA72E7B"
+      }
+    },
+    "DataStreamName": {
+      "Description": "Name of the Amazon Kinesis Data stream",
+      "Value": {
+        "Ref": "KdsDataStream4BCE778D"
+      }
+    },
+    "StudioNotebookName": {
+      "Description": "Name of the Amazon Kinesis Data Analytics Studio notebook",
+      "Value": {
+        "Ref": "KdaStudioB3B083CE"
+      }
+    },
+    "OutputBucketName": {
+      "Description": "Name of the Amazon S3 destination bucket",
+      "Value": {
+        "Ref": "OutputBucketB1E245A7"
+      }
+    }
+  }
+}

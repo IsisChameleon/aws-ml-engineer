@@ -1,0 +1,292 @@
+Description: (SO0124) - Streaming Data Solution for Amazon Kinesis (KPL -> KDS -> KDA). Version v1.9.1
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Amazon Kinesis Data Streams configuration
+        Parameters:
+          - ShardCount
+          - RetentionHours
+          - EnableEnhancedMonitoring
+      - Label:
+          default: Amazon Kinesis Data Analytics configuration
+        Parameters:
+          - LogLevel
+          - ApplicationSubnetIds
+          - ApplicationSecurityGroupIds
+    ParameterLabels:
+      ShardCount:
+        default: Number of open shards
+      RetentionHours:
+        default: Data retention period (hours)
+      EnableEnhancedMonitoring:
+        default: Enable enhanced (shard-level) metrics
+      LogLevel:
+        default: Verbosity of the CloudWatch Logs for the studio
+      ApplicationSubnetIds:
+        default: (Optional) Comma-separated list of subnet ids for VPC connectivity (if informed, requires security groups to be included as well)
+      ApplicationSecurityGroupIds:
+        default: (Optional) Comma-separated list of security groups ids for VPC connectivity (if informed, requires subnets to be included as well)
+  cdk_nag:
+    rules_to_suppress:
+      - reason: IAM role requires more permissions
+        id: AwsSolutions-IAM5
+      - reason: EC2 does not need ASG
+        id: AwsSolutions-EC29
+Parameters:
+  ShardCount:
+    Type: Number
+    Default: 2
+    MaxValue: 200
+    MinValue: 1
+  RetentionHours:
+    Type: Number
+    Default: 24
+    MaxValue: 8760
+    MinValue: 24
+  EnableEnhancedMonitoring:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+  BootstrapVersion:
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: /cdk-bootstrap/hnb659fds/version
+    Description: Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]
+Resources:
+  KinesisDataStreamC71C80CD:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: TwitterAnalysisInputStream
+      RetentionPeriodHours:
+        Ref: RetentionHours
+      ShardCount:
+        Ref: ShardCount
+      StreamEncryption:
+        Fn::If:
+          - AwsCdkKinesisEncryptedStreamsUnsupportedRegions
+          - Ref: AWS::NoValue
+          - EncryptionType: KMS
+            KeyId: alias/aws/kinesis
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: TwitterAnalysisStack/KinesisDataStream/Resource
+  TwitterAnalysisBucket18BBFFC8:
+    Type: AWS::S3::Bucket
+    UpdateReplacePolicy: Retain
+    DeletionPolicy: Retain
+    Metadata:
+      aws:cdk:path: TwitterAnalysisStack/TwitterAnalysisBucket/Resource
+  KinesisAnalyticsRoleCBFE2DD3:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action: sts:AssumeRole
+            Effect: Allow
+            Principal:
+              Service: kinesisanalytics.amazonaws.com
+        Version: "2012-10-17"
+      ManagedPolicyArns:
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AmazonKinesisAnalyticsFullAccess
+        - Fn::Join:
+            - ""
+            - - "arn:"
+              - Ref: AWS::Partition
+              - :iam::aws:policy/service-role/AmazonKinesisAnalyticsReadOnly
+    Metadata:
+      aws:cdk:path: TwitterAnalysisStack/KinesisAnalyticsRole/Resource
+  TwitterStreamAnalytics:
+    Type: AWS::KinesisAnalytics::Application
+    Properties:
+      ApplicationName: TwitterStreamAnalytics
+      Inputs:
+        - InputSchema:
+            RecordColumns:
+              - Mapping: $.Datetime
+                Name: Datetime
+                SqlType: VARCHAR(256)
+              - Mapping: $.TweetId
+                Name: TweetId
+                SqlType: BIGINT
+              - Mapping: $.Text
+                Name: Text
+                SqlType: VARCHAR(256)
+              - Mapping: $.Username
+                Name: Username
+                SqlType: VARCHAR(256)
+              - Mapping: $.Permalink
+                Name: Permalink
+                SqlType: VARCHAR(256)
+              - Mapping: $.User
+                Name: User
+                SqlType: VARCHAR(256)
+              - Mapping: $.Outlinks
+                Name: Outlinks
+                SqlType: VARCHAR(256)
+              - Mapping: $.CountLinks
+                Name: CountLinks
+                SqlType: VARCHAR(256)
+              - Mapping: $.ReplyCount
+                Name: ReplyCount
+                SqlType: INTEGER
+              - Mapping: $.RetweetCount
+                Name: RetweetCount
+                SqlType: INTEGER
+              - Mapping: $.LikeCount
+                Name: LikeCount
+                SqlType: INTEGER
+              - Mapping: $.QuoteCount
+                Name: QuoteCount
+                SqlType: INTEGER
+              - Mapping: $.ConversationId
+                Name: ConversationId
+                SqlType: BIGINT
+              - Mapping: $.Language
+                Name: Language
+                SqlType: VARCHAR(256)
+              - Mapping: $.Source
+                Name: Source
+                SqlType: VARCHAR(256)
+              - Mapping: $.Media
+                Name: Media
+                SqlType: VARCHAR(256)
+              - Mapping: $.QuotedTweet
+                Name: QuotedTweet
+                SqlType: VARCHAR(256)
+              - Mapping: $.MentionedUsers
+                Name: MentionedUsers
+                SqlType: VARCHAR(256)
+              - Mapping: $.hashtag
+                Name: hashtag
+                SqlType: VARCHAR(256)
+              - Mapping: $.hastag_counts
+                Name: hastag_counts
+                SqlType: INTEGER
+            RecordFormat:
+              RecordFormatType: JSON
+          KinesisStreamsInput:
+            ResourceARN:
+              Fn::GetAtt:
+                - KinesisDataStreamC71C80CD
+                - Arn
+            RoleARN:
+              Fn::GetAtt:
+                - KinesisAnalyticsRoleCBFE2DD3
+                - Arn
+          NamePrefix: TwitterStream
+    Metadata:
+      aws:cdk:path: TwitterAnalysisStack/TwitterStreamAnalytics
+  CDKMetadata:
+    Type: AWS::CDK::Metadata
+    Properties:
+      Analytics: v2:deflate64:H4sIAAAAAAAA/y2MQQqDMBBFz+I+TlELpcvWC4g9QJnGSKdJJpJERELuXoKu/pvP+9NCc71BW+EWajnp2tAH0iui1KKfeUCPVkXlBW7hnTSxChSK4BXaYhyUReggPVepVSztQVkQWkijM6qUJbM4fyCj2SPJAP3Mj2UxJDGS41zM3vFE5RKjCm718tifnMWwx6/jSwdNA/fqF4hqv3Ikq2A88g/wqjeg1wAAAA==
+    Metadata:
+      aws:cdk:path: TwitterAnalysisStack/CDKMetadata/Default
+    Condition: CDKMetadataAvailable
+Conditions:
+  AwsCdkKinesisEncryptedStreamsUnsupportedRegions:
+    Fn::Or:
+      - Fn::Equals:
+          - Ref: AWS::Region
+          - cn-north-1
+      - Fn::Equals:
+          - Ref: AWS::Region
+          - cn-northwest-1
+  CDKMetadataAvailable:
+    Fn::Or:
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - af-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-northeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ap-southeast-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - ca-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - cn-northwest-1
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-north-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - eu-west-3
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - il-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - me-central-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - me-south-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - sa-east-1
+      - Fn::Or:
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-east-2
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-west-1
+          - Fn::Equals:
+              - Ref: AWS::Region
+              - us-west-2
+Rules:
+  CheckBootstrapVersion:
+    Assertions:
+      - Assert:
+          Fn::Not:
+            - Fn::Contains:
+                - - "1"
+                  - "2"
+                  - "3"
+                  - "4"
+                  - "5"
+                - Ref: BootstrapVersion
+        AssertDescription: CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.
+
